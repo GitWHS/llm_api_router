@@ -1,0 +1,32 @@
+# inner 侧配置（内网设备，持有真实 LLM key，对外不可达）
+# 本地测试: inner 监听 4001（仅本机可访问，模拟防火墙内设备）
+
+listen:
+  host: 127.0.0.1
+  port: 4001
+
+virtual_keys:
+  - key: "vk-inner-local-only"
+    pools: []
+
+strategy: cache_affinity_ttl
+cache_ttl_seconds: 300
+fallback_strategy: weighted_round_robin
+default_cooldown_seconds: 60
+max_retries: 2
+
+connect_timeout: 10
+first_byte_timeout: 600
+stream_idle_timeout: 600
+total_timeout: 1200
+total_timeout_stream: 3600
+
+hot_reload: true
+hot_reload_poll_seconds: 2
+state_file: ./state_inner.json
+
+admin_token: "inner-admin-token-test"
+
+log:
+  file: ./inner.log
+  level: INFO

@@ -1,0 +1,72 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# llm_api_router 主配置  ——  复制为 config.yaml 后修改
+# 大模型资源池（key/upstream/type）在 keys.yaml，本文件管服务行为。
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 监听设置（默认仅本机）
+listen:
+  host: 127.0.0.1
+  port: 4000
+
+# 客户端使用的虚拟 key 清单。每个 vk 可指定能访问哪些池。
+# pools 留空或省略 = 该 vk 可访问所有池。
+virtual_keys:
+  - key: "vk-local-001"
+    pools: [anthropic, openai, openai_chat, deepseek]
+
+  # - key: "vk-readonly-002"
+  #   pools: [openai]                       # 只能用指定池
+
+# 端点 → 池 路由（可选）
+# 默认走"约定式默认路由"：按 pool 的 type 自动挂载（见 keys.example.yaml 顶部说明），
+# 无需在此配置。仅在需要特殊绑定时覆盖，例如：
+#   - 让 /v1/responses 也能落到 deepseek 池（它 type=openai_chat，默认只挂 chat 端点）
+#   - 让某个端点在多个同 type 池间按策略选择
+# endpoints:
+#   "/v1/responses":        [openai, deepseek]   # 数组=多池,按 strategy 选;字符串=单池
+#   "/anthropic/v1/messages": anthropic
+
+# ── 调度 ───────────────────────────────────────────────────────────────────
+strategy: cache_affinity_ttl   # cache_affinity_ttl(默认) | cache_affinity | round_robin | weighted_round_robin | lru | least_active
+cache_ttl_seconds: 300          # 粘性窗口：300s 内相同内容复用同 key 吃缓存；超窗口则负载均衡
+fallback_strategy: weighted_round_robin   # 粘性失效/超窗口时用的负载均衡策略
+default_cooldown_seconds: 60     # 上游 429 无 Retry-After 时的冷却
+max_retries: 3                   # 单请求最大重试次数（仅未开始流式时）
+max_concurrent_per_key: 8        # 单 key 并发上限（可被 keys.yaml 内逐个覆盖）
+
+# ── 超时分级（agent 场景调大，见 DESIGN §6.4）──────────────────────────────
+connect_timeout: 10              # 建连
+first_byte_timeout: 60           # 首字节（流式）
+stream_idle_timeout: 600         # 流式 chunk 间隔上限
+total_timeout: 1200              # 非流式总超时（20 分钟）
+total_timeout_stream: 1800       # 流式总超时（30 分钟，高 reasoning effort 需要）
+
+# ── 限流头 ────────────────────────────────────────────────────────────────
+expose_rate_limits: false        # false=剥离上游单 key 限流头; true=重写为全池聚合保守值
+
+# ── 热加载（见 DESIGN §15）─────────────────────────────────────────────────
+hot_reload: true                 # keys.yaml/config.yaml 可热改部分自动加载，无需重启
+hot_reload_poll_seconds: 2       # 文件 mtime 轮询间隔（无 watchdog 时用）
+
+# ── 持久化 ────────────────────────────────────────────────────────────────
+state_file: ./state.json         # 冷却/统计落盘，重启不丢
+
+# ── 日志 ──────────────────────────────────────────────────────────────────
+log:
+  file: ./router.log
+  level: INFO                    # DEBUG | INFO | WARN | ERROR
+  rotate_mb: 10
+  rotate_keep: 5
+
+# ── 管理面（/admin/*）─────────────────────────────────────────────────────
+# 不填 admin_token 则 /admin/* 全部返回 404，最安全。
+# admin_token: "随便一段长字符串"
+
+# ── 告警 webhook（可选）────────────────────────────────────────────────────
+# 触发条件：某 key 转 disabled / 全池冷却 / 5 分钟错误率 >50%
+# alert:
+#   webhook: https://oapi.dingtalk.com/robot/send?access_token=xxx
+#   min_interval_seconds: 300    # 同类告警最短间隔，避免刷屏
+
+# ── 调试 ──────────────────────────────────────────────────────────────────
+# record_full_payload: false     # true 时把 prompt/response 全文落盘（占用大、有隐私风险）

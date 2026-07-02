@@ -1,0 +1,35 @@
+# relay 侧配置（对外暴露，外部客户端接入这里）
+# 本地测试: relay 监听 4000，inner 监听 4001
+
+listen:
+  host: 0.0.0.0
+  port: 4000
+
+virtual_keys:
+  - key: "vk-relay-test-001"
+    pools: []    # 空 = 可访问所有池（含 tunnel 池）
+
+strategy: cache_affinity_ttl
+cache_ttl_seconds: 300
+fallback_strategy: weighted_round_robin
+default_cooldown_seconds: 60
+max_retries: 2
+
+connect_timeout: 10
+first_byte_timeout: 60
+stream_idle_timeout: 600
+total_timeout: 1200
+total_timeout_stream: 1800
+
+hot_reload: true
+hot_reload_poll_seconds: 2
+state_file: ./state_relay.json
+
+# 隧道认证 token，inner 连接时必须携带
+tunnel_token: "tunnel-shared-secret-for-test"
+
+admin_token: "relay-admin-token-test"
+
+log:
+  file: ./relay.log
+  level: INFO

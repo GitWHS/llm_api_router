@@ -1,0 +1,77 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Key 池配置  ——  真实 API key 全部存于此文件，不要提交到 git
+# 复制为 keys.yaml 后填入真实 key；建议设文件 ACL 仅本人可读：
+#   icacls keys.yaml /inheritance:r /grant:r "%USERNAME%:R"
+#
+# 结构（DESIGN §7）：
+#   pools.<pool_name>:
+#     type: anthropic | openai_chat | openai_responses   ← 协议类型,决定 SSE/token 字段/默认端点
+#     auth_scheme: x-api-key | bearer                    ← 上游鉴权方式;不写则按 type 默认
+#                                                          (anthropic→x-api-key, openai→bearer)
+#     keys:
+#       - id: <key_id>            ← 唯一标识(日志/管理用,不打印真实 key)
+#         key: "<sk-xxx>"         ← 真实 key
+#         upstream: <url>         ← 必填,无默认!每个 key 显式指定上游
+#         weight: 1               ← 可选,加权策略用,默认 1
+#         max_concurrent: 8       ← 可选,该 key 并发上限;不写=无上限(默认)
+#         support_models: []      ← 可选,该 key 支持的模型白名单;为空=接受任意模型
+#         disabled: false         ← 可选,临时禁用
+#
+# 约定式默认路由（无需写 config.yaml endpoints）：
+#   type: anthropic          → /anthropic/v1/messages, /anthropic/v1/messages/count_tokens
+#   type: openai_chat        → /v1/chat/completions, /v1/models
+#   type: openai_responses   → /v1/responses, /v1/models
+# ─────────────────────────────────────────────────────────────────────────────
+
+pools:
+  # ── Anthropic 协议池（Claude Code 打这里）──────────────────────────────────
+  anthropic:
+    type: anthropic
+    # auth_scheme 默认 x-api-key（官方 Anthropic）。Ark 等 Anthropic 兼容中转
+    # 用 Bearer 鉴权 → 须显式 auth_scheme: bearer，否则上游 401（见 DESIGN §4.5）。
+    # auth_scheme: x-api-key
+    keys:
+      # 官方 key
+      - id: ak1
+        key: "sk-ant-api03-XXXXXXXXXXXXXXXXXXXX-1"
+        upstream: https://api.anthropic.com
+        weight: 1
+
+      - id: ak2
+        key: "sk-ant-api03-XXXXXXXXXXXXXXXXXXXX-2"
+        upstream: https://api.anthropic.com
+        weight: 2                # 配额大→权重大
+        max_concurrent: 8        # 该 key 并发上限；不写则无上限
+
+      # 中转商 key：自己的 upstream + 只支持部分模型（官方/中转 key 可同池）
+      - id: ak3
+        key: "中转key-XXXXXXXX"
+        upstream: https://relay.xxx/anthropic
+        weight: 1
+        support_models:
+          - claude-sonnet-4-6
+          - claude-haiku-4-5-20251001
+
+  # ── OpenAI Responses 协议池（Codex 默认 wire_api=responses 打这里）─────────
+  openai:
+    type: openai_responses
+    keys:
+      - { id: ok1, key: "sk-XXXXXXXXXXXXXXXX-1", upstream: https://api.openai.com }
+      - { id: ok2, key: "sk-XXXXXXXXXXXXXXXX-2", upstream: https://api.openai.com, weight: 2 }
+
+  # ── 兼容厂商示例：DeepSeek，只支持 chat 协议 ───────────────────────────────
+  deepseek:
+    type: openai_chat
+    keys:
+      - id: ds1
+        key: "sk-deepseek-XXXXXXXXXXXX"
+        upstream: https://api.deepseek.com
+        support_models: [deepseek-v4-pro, deepseek-chat, deepseek-reasoner]
+
+  # ── 火山引擎 Ark Coding（Anthropic 协议 + Bearer 鉴权）实测可用 ────────────
+  # ark_anthropic:
+  #   type: anthropic
+  #   auth_scheme: bearer
+  #   keys:
+  #     - { id: ark1, key: "ark-xxxx-1", upstream: https://ark.cn-beijing.volces.com/api/coding, support_models: [glm-5.2, deepseek-v4-pro, kimi-k2.7] }
+  #     - { id: ark2, key: "ark-xxxx-2", upstream: https://ark.cn-beijing.volces.com/api/coding, support_models: [glm-5.2, deepseek-v4-pro, kimi-k2.7] }

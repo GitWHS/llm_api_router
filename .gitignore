@@ -1,0 +1,39 @@
+# 真实凭据 — 永不提交
+keys.yaml
+keys_inner.yaml
+keys_relay.yaml
+config.yaml
+state.json
+state.json.tmp
+state_inner.json
+state_relay.json
+router.log
+router.log.*
+inner.log
+relay.log
+
+# 本地隔离测试栈（含真实 key / 临时状态）
+keys_test_inner.yaml
+keys_test_relay.yaml
+config_test_relay.yaml
+config_test_inner.yaml
+state_test_relay.json
+state_test_inner.json
+test_relay.log
+test_inner.log
+
+# 临时工具脚本
+install_gh.ps1
+cursor_spin.py
+
+# Claude Code 会话数据
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.egg-info/
+build/
+dist/

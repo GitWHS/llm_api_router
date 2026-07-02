@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LLM API Router · 管理面</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #181b24; --panel2: #1f2330; --border: #2a2f3e;
+    --fg: #e6e9ef; --muted: #8b92a5; --accent: #5b8cff; --ok: #3fb950;
+    --warn: #d29922; --err: #f85149; --chip: #2a2f3e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system,Segoe UI,Roboto,"Microsoft YaHei",sans-serif;
+         background: var(--bg); color: var(--fg); }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px;
+           background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  header .status { font-size: 12px; color: var(--muted); }
+  header .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+  nav { display: flex; gap: 4px; padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  nav button { background: none; border: none; color: var(--muted); padding: 10px 16px; cursor: pointer;
+               font-size: 14px; border-bottom: 2px solid transparent; }
+  nav button.active { color: var(--fg); border-bottom-color: var(--accent); }
+  nav button:hover { color: var(--fg); }
+  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; margin-bottom: 20px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card .label { font-size: 12px; color: var(--muted); }
+  .card .value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+  .card .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit,minmax(360px,1fr)); gap: 14px; }
+  .section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 14px 0; overflow: auto; }
+  .bar { display: inline-block; height: 8px; border-radius: 999px; background: var(--accent); min-width: 2px; vertical-align: middle; }
+  .diag { border-left: 3px solid var(--border); padding: 8px 10px; margin: 8px 0; background: var(--panel); }
+  .diag.err { border-left-color: var(--err); }
+  .diag.warn { border-left-color: var(--warn); }
+  .diag.ok { border-left-color: var(--ok); }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; background: var(--panel2); }
+  tr:last-child td { border-bottom: none; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: var(--chip); margin: 1px; }
+  .chip.ok { background: rgba(63,185,80,.15); color: var(--ok); }
+  .chip.warn { background: rgba(210,153,34,.15); color: var(--warn); }
+  .chip.err { background: rgba(248,81,73,.15); color: var(--err); }
+  button.act { background: var(--panel2); border: 1px solid var(--border); color: var(--fg);
+               padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; margin-right: 4px; }
+  button.act:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger:hover { border-color: var(--err); color: var(--err); }
+  h2 { font-size: 15px; margin: 18px 0 10px; }
+  pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px;
+        overflow: auto; font-size: 12px; max-height: 480px; }
+  input, select { background: var(--panel2); border: 1px solid var(--border); color: var(--fg);
+                  padding: 6px 10px; border-radius: 5px; font-size: 13px; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center;
+           justify-content: center; z-index: 100; }
+  .modal .box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+                padding: 28px; width: 360px; }
+  .modal h2 { margin-top: 0; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+  .muted { color: var(--muted); }
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--panel2); border: 1px solid var(--border);
+           padding: 10px 16px; border-radius: 8px; z-index: 200; max-width: 360px; }
+  .toast.err { border-color: var(--err); }
+  .logline { font-family: ui-monospace,Consolas,monospace; font-size: 12px; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<div id="login" class="modal">
+  <div class="box">
+    <h2>LLM API Router</h2>
+    <p class="muted">输入 admin_token 进入管理面（来自 config.yaml）。</p>
+    <div class="row"><input id="tok" type="password" placeholder="admin_token" style="flex:1" /></div>
+    <div class="row"><button class="act primary" onclick="login()">进入</button>
+      <span id="loginErr" class="chip err hide"></span></div>
+    <p class="muted" style="font-size:12px">token 仅存浏览器 sessionStorage，关闭即清。</p>
+  </div>
+</div>
+
+<header class="hide" id="shell">
+  <h1>LLM API Router <span class="muted" style="font-weight:400">管理面</span></h1>
+  <span class="spacer"></span>
+  <span class="status" id="hstatus"></span>
+  <button class="act" onclick="logout()">登出</button>
+</header>
+<nav class="hide" id="nav">
+  <button data-tab="dashboard" class="active">概览</button>
+  <button data-tab="routes">路由矩阵</button>
+  <button data-tab="usage">用量</button>
+  <button data-tab="diagnostics">诊断</button>
+  <button data-tab="pools">池 / Key</button>
+  <button data-tab="vks">Virtual Keys</button>
+  <button data-tab="logs">日志</button>
+  <button data-tab="config">配置</button>
+</nav>
+<main class="hide" id="content"></main>
+
+<script>
+const API = location.origin;
+let TOKEN = sessionStorage.getItem("asr_admin_token") || "";
+let curTab = "dashboard";
+let timer = null;
+
+function h(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function toast(msg, isErr){ const t=document.createElement("div"); t.className="toast"+(isErr?" err":""); t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(), 3000); }
+
+async function api(path, opts={}){
+  const r = await fetch(API+path, {...opts, headers:{"X-Admin-Token":TOKEN, "Content-Type":"application/json", ...(opts.headers||{})}});
+  if(r.status===403||r.status===401){ logout(); throw new Error("unauthorized"); }
+  const ct = r.headers.get("content-type")||"";
+  const data = ct.includes("json") ? await r.json() : await r.text();
+  if(!r.ok) throw new Error((data && data.error) || ("HTTP "+r.status));
+  return data;
+}
+
+async function login(){
+  TOKEN = document.getElementById("tok").value.trim();
+  try{
+    await api("/admin/pools");                 // 试探鉴权
+    sessionStorage.setItem("asr_admin_token", TOKEN);
+    enterApp();
+  }catch(e){
+    const el=document.getElementById("loginErr"); el.textContent="token 无效或管理面未启用"; el.classList.remove("hide");
+  }
+}
+function logout(){ sessionStorage.removeItem("asr_admin_token"); TOKEN=""; if(timer) clearInterval(timer);
+  ["shell","nav","content"].forEach(id=>document.getElementById(id).classList.add("hide"));
+  document.getElementById("login").classList.remove("hide"); }
+
+function enterApp(){
+  document.getElementById("login").classList.add("hide");
+  ["shell","nav","content"].forEach(id=>document.getElementById(id).classList.remove("hide"));
+  document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{ switchTab(b.dataset.tab); });
+  switchTab("dashboard");
+}
+function switchTab(t){
+  curTab=t;
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active", b.dataset.tab===t));
+  if(timer) clearInterval(timer);
+  render();
+  if(["dashboard","usage","diagnostics","logs"].includes(t)) timer=setInterval(render, 5000);  // 关键运行页自动刷新
+}
+
+async function render(){
+  try{
+    if(curTab==="dashboard") await renderDashboard();
+    else if(curTab==="routes") await renderRoutes();
+    else if(curTab==="usage") await renderUsage();
+    else if(curTab==="diagnostics") await renderDiagnostics();
+    else if(curTab==="pools") await renderPools();
+    else if(curTab==="vks") await renderVks();
+    else if(curTab==="logs") await renderLogs();
+    else if(curTab==="config") await renderConfig();
+  }catch(e){ if(e.message!=="unauthorized") toast(e.message, true); }
+}
+
+function fmt(n){ return (n||0).toLocaleString(); }
+function pct(n){ return Math.round((n||0)*100); }
+function secLeft(ts){ return Math.max(0, Math.round((ts||0) - Date.now()/1000)); }
+function short(s,n=28){ s=String(s||""); return s.length>n ? s.slice(0,n)+"…" : s; }
+function token(n){ n=n||0; if(n>=1000000) return (n/1000000).toFixed(2)+"M"; if(n>=1000) return (n/1000).toFixed(1)+"K"; return fmt(n); }
+function statusChip(status){
+  const n = Number(status);
+  const cls = n>=500 ? "err" : (n>=400 ? "warn" : "ok");
+  return `<span class="chip ${cls}">${h(status)}</span>`;
+}
+function usageRows(obj, label, limit=12){
+  const rows = Object.entries(obj||{}).sort((a,b)=>(b[1].total_tokens||0)-(a[1].total_tokens||0)).slice(0, limit);
+  if(!rows.length) return `<tr><td colspan="8" class="muted">暂无数据</td></tr>`;
+  return rows.map(([name,d]) => `<tr>
+    <td class="logline">${h(short(name, 46))}</td>
+    <td>${fmt(d.requests)}</td><td>${fmt(d.ok)}</td><td>${d.errors?`<span class="chip err">${fmt(d.errors)}</span>`:"0"}</td>
+    <td>${token(d.prompt_tokens)}</td><td>${token(d.completion_tokens)}</td><td>${token(d.total_tokens)}</td>
+    <td>${fmt(d.retries)}</td>
+  </tr>`).join("");
+}
+function usageTable(title, obj, label="维度", limit=12){
+  return `<div class="section"><h2>${h(title)}</h2><table>
+    <tr><th>${h(label)}</th><th>请求</th><th>成功</th><th>错误</th><th>输入 tok</th><th>输出 tok</th><th>总 tok</th><th>重试</th></tr>
+    ${usageRows(obj, label, limit)}
+  </table></div>`;
+}
+function seriesBars(series){
+  const maxReq = Math.max(1, ...((series||[]).map(i=>i.requests||0)));
+  return `<table><tr><th>时间桶</th><th>请求</th><th>Token</th><th>错误</th></tr>${(series||[]).map(i=>{
+    const start = new Date(i.start*1000).toLocaleTimeString();
+    const width = Math.max(2, Math.round((i.requests||0)/maxReq*180));
+    return `<tr><td>${h(start)}</td><td><span class="bar" style="width:${width}px"></span> ${fmt(i.requests)}</td><td>${token(i.total_tokens)}</td><td>${i.errors?`<span class="chip err">${fmt(i.errors)}</span>`:"0"}</td></tr>`;
+  }).join("")}</table>`;
+}
+
+async function renderDashboard(){
+  const [stats, usage] = await Promise.all([api("/stats"), api("/admin/usage?window=1h").catch(()=>({total:0,ok:0,errors:0,by_pool:{}}))]);
+  const pools = stats.pools||{};
+  let keyCount=0, healthy=0, cooling=[];
+  for(const [pn,p] of Object.entries(pools)){
+    keyCount += p.key_count||0; healthy += p.available_keys ?? p.healthy_keys ?? 0;
+    for(const [kid,rt] of Object.entries(p.keys||{})){
+      if(rt.cooldown_until && rt.cooldown_until*1000 > Date.now())
+        cooling.push({pool:pn, id:kid, left:Math.round(rt.cooldown_until - Date.now()/1000), err:rt.last_error});
+    }
+  }
+  document.getElementById("hstatus").innerHTML =
+    `<span class="dot" style="background:var(--ok)"></span>strategy=${h(stats.strategy)} · ttl=${h(stats.cache_ttl_seconds)}s · 池 ${Object.keys(pools).length}`;
+  const succ = usage.total ? Math.round(usage.ok/usage.total*100) : 100;
+  let html = `<div class="cards">
+    <div class="card"><div class="label">池数量</div><div class="value">${Object.keys(pools).length}</div></div>
+    <div class="card"><div class="label">可用 Key</div><div class="value">${healthy}/${keyCount}</div><div class="sub">不含 disabled / cooling</div></div>
+    <div class="card"><div class="label">近 1h 请求</div><div class="value">${fmt(usage.total)}</div><div class="sub">成功 ${fmt(usage.ok)} · 失败 ${fmt(usage.errors)}</div></div>
+    <div class="card"><div class="label">近 1h 成功率</div><div class="value">${succ}%</div></div>
+    <div class="card"><div class="label">近 1h Token</div><div class="value">${token(usage.total_tokens)}</div><div class="sub">in ${token(usage.prompt_tokens)} · out ${token(usage.completion_tokens)}</div></div>
+    <div class="card"><div class="label">吞吐</div><div class="value">${fmt(usage.rpm)}</div><div class="sub">RPM · TPM ${token(usage.tpm)}</div></div>
+    <div class="card"><div class="label">延迟 P95</div><div class="value">${fmt(usage.latency?.p95_ms)}ms</div><div class="sub">avg ${fmt(usage.latency?.avg_ms)}ms</div></div>
+    <div class="card"><div class="label">重试</div><div class="value">${fmt(usage.retries)}</div><div class="sub">流式 ${fmt(usage.stream)} · 非流式 ${fmt(usage.non_stream)}</div></div>
+  </div>`;
+  html += `<h2>各池请求（近 1h）</h2><table><tr><th>池</th><th>请求</th><th>错误</th></tr>`;
+  for(const [pn,d] of Object.entries(usage.by_pool||{}))
+    html += `<tr><td>${h(pn)}</td><td>${fmt(d.requests)}</td><td>${d.errors?'<span class="chip err">'+d.errors+'</span>':'0'}</td></tr>`;
+  if(!Object.keys(usage.by_pool||{}).length) html += `<tr><td colspan="3" class="muted">暂无请求</td></tr>`;
+  html += `</table>`;
+  html += `<h2>冷却中的 Key</h2><table><tr><th>池::Key</th><th>剩余</th><th>原因</th><th>操作</th></tr>`;
+  if(!cooling.length) html += `<tr><td colspan="4" class="muted">无</td></tr>`;
+  for(const c of cooling)
+    html += `<tr><td>${h(c.pool)}::${h(c.id)}</td><td><span class="chip warn">${c.left}s</span></td>
+      <td class="muted">${h((c.err||"").slice(0,60))}</td>
+      <td><button class="act" onclick="keyAction('${h(c.pool)}','${h(c.id)}','reset-cooldown')">重置冷却</button></td></tr>`;
+  html += `</table>`;
+  document.getElementById("content").innerHTML = html;
+}
+
+async function renderRoutes(){
+  const data = await api("/admin/routes");
+  let html = `<div class="cards">
+    <div class="card"><div class="label">Endpoint</div><div class="value">${fmt((data.routes||[]).length)}</div></div>
+    <div class="card"><div class="label">策略</div><div class="value" style="font-size:18px">${h(data.strategy)}</div><div class="sub">fallback=${h(data.fallback_strategy)}</div></div>
+  </div>`;
+  html += `<h2>Endpoint 路由矩阵</h2><table>
+    <tr><th>Endpoint</th><th>绑定 Pool</th><th>协议</th><th>Key 可用</th><th>模型</th><th>可访问 VK</th><th>并发</th></tr>`;
+  for(const r of data.routes||[]){
+    const pools = (r.pools||[]).map(p=>`<span class="chip">${h(p.name)}${p.missing?" missing":""}</span>`).join("");
+    const types = [...new Set((r.pools||[]).map(p=>p.type).filter(Boolean))].map(t=>`<span class="chip">${h(t)}</span>`).join("");
+    const models = (r.models||[]).slice(0,8).map(m=>`<span class="chip">${h(m)}</span>`).join("") || '<span class="muted">全部 / 未声明</span>';
+    const moreModels = (r.models||[]).length>8 ? `<span class="muted">+${r.models.length-8}</span>` : "";
+    const vks = (r.virtual_keys||[]).slice(0,5).map(v=>`<span class="chip">${h(short(v,18))}</span>`).join("") || '<span class="muted">无</span>';
+    const moreVk = (r.virtual_keys||[]).length>5 ? `<span class="muted">+${r.virtual_keys.length-5}</span>` : "";
+    const keyCls = r.available_keys>0 ? "ok" : "err";
+    html += `<tr>
+      <td class="logline">${h(r.path)}</td>
+      <td>${pools}</td><td>${types}</td>
+      <td><span class="chip ${keyCls}">${fmt(r.available_keys)}/${fmt(r.key_count)}</span> <span class="muted">cool ${fmt(r.cooling_keys)} · off ${fmt(r.disabled_keys)}</span></td>
+      <td>${models}${moreModels}</td>
+      <td>${vks}${moreVk}</td>
+      <td>${fmt(r.active)}</td>
+    </tr>`;
+  }
+  if(!(data.routes||[]).length) html += `<tr><td colspan="7" class="muted">暂无路由</td></tr>`;
+  html += `</table>`;
+  document.getElementById("content").innerHTML = html;
+}
+
+async function renderUsage(){
+  const sel = document.getElementById("usageWindow");
+  const windowValue = sel ? sel.value : "1h";
+  const usage = await api(`/admin/usage?window=${encodeURIComponent(windowValue)}`);
+  const success = usage.total ? Math.round(usage.success_rate*100) : 100;
+  let html = `<div class="row">
+    <label class="muted">窗口</label>
+    <select id="usageWindow" onchange="renderUsage()">
+      ${["15m","1h","24h","7d","30d"].map(w=>`<option value="${w}" ${w===usage.window?"selected":""}>${w}</option>`).join("")}
+    </select>
+  </div>`;
+  html += `<div class="cards">
+    <div class="card"><div class="label">请求</div><div class="value">${fmt(usage.total)}</div><div class="sub">成功 ${fmt(usage.ok)} · 错误 ${fmt(usage.errors)} · ${success}%</div></div>
+    <div class="card"><div class="label">Token</div><div class="value">${token(usage.total_tokens)}</div><div class="sub">输入 ${token(usage.prompt_tokens)} · 输出 ${token(usage.completion_tokens)}</div></div>
+    <div class="card"><div class="label">平均 Token/请求</div><div class="value">${fmt(usage.avg_tokens_per_request)}</div></div>
+    <div class="card"><div class="label">吞吐</div><div class="value">${fmt(usage.rpm)}</div><div class="sub">RPM · TPM ${token(usage.tpm)}</div></div>
+    <div class="card"><div class="label">延迟</div><div class="value">${fmt(usage.latency?.p95_ms)}ms</div><div class="sub">P50 ${fmt(usage.latency?.p50_ms)} · P99 ${fmt(usage.latency?.p99_ms)}</div></div>
+    <div class="card"><div class="label">重试/流式</div><div class="value">${fmt(usage.retries)}</div><div class="sub">stream ${fmt(usage.stream)} · non-stream ${fmt(usage.non_stream)}</div></div>
+  </div>`;
+  html += `<div class="section"><h2>时间序列</h2>${seriesBars(usage.series||[])}</div>`;
+  html += usageTable("按 Virtual Key", usage.by_vk, "VK", 20);
+  html += `<div class="grid2">${usageTable("按模型", usage.by_model, "Model", 20)}${usageTable("按 Endpoint", usage.by_endpoint, "Endpoint", 20)}</div>`;
+  html += `<div class="grid2">${usageTable("按 Pool", usage.by_pool, "Pool", 20)}${usageTable("按真实 Key", usage.by_key, "Pool::Key", 20)}</div>`;
+  html += `<div class="grid2">
+    <div class="section"><h2>状态码</h2><table><tr><th>状态</th><th>请求</th></tr>${Object.entries(usage.by_status||{}).sort((a,b)=>b[1]-a[1]).map(([s,n])=>`<tr><td>${statusChip(s)}</td><td>${fmt(n)}</td></tr>`).join("")||'<tr><td colspan="2" class="muted">暂无数据</td></tr>'}</table></div>
+    <div class="section"><h2>重试分布</h2><table><tr><th>重试次数</th><th>请求</th></tr>${Object.entries(usage.retry_histogram||{}).sort((a,b)=>Number(a[0])-Number(b[0])).map(([s,n])=>`<tr><td>${h(s)}</td><td>${fmt(n)}</td></tr>`).join("")||'<tr><td colspan="2" class="muted">暂无数据</td></tr>'}</table></div>
+  </div>`;
+  document.getElementById("content").innerHTML = html;
+}
+
+async function renderDiagnostics(){
+  const [stats, usage] = await Promise.all([api("/stats"), api("/admin/usage?window=1h")]);
+  const diagnostics = [];
+  for(const [pn,p] of Object.entries(stats.pools||{})){
+    if((p.available_keys||0) === 0) diagnostics.push({level:"err", title:`${pn} 无可用 key`, detail:`enabled=${fmt(p.enabled_keys)} cooling=${fmt(p.cooling_keys)} disabled=${fmt(p.disabled_keys)}`});
+    else if((p.cooling_keys||0)>0) diagnostics.push({level:"warn", title:`${pn} 有 key 冷却中`, detail:`cooling=${fmt(p.cooling_keys)} available=${fmt(p.available_keys)}`});
+    if((p.active||0)>0) diagnostics.push({level:"ok", title:`${pn} 当前有活跃请求`, detail:`active=${fmt(p.active)}`});
+    for(const [kid,rt] of Object.entries(p.keys||{})){
+      if(rt.disabled) diagnostics.push({level:"err", title:`${pn}::${kid} 已禁用`, detail:h(short(rt.last_error||rt.last_status,120))});
+      else if(secLeft(rt.cooldown_until)>0) diagnostics.push({level:"warn", title:`${pn}::${kid} 冷却中 ${secLeft(rt.cooldown_until)}s`, detail:h(short(rt.last_error||"cooldown",160))});
+      else if((rt.consecutive_fails||0)>0) diagnostics.push({level:"warn", title:`${pn}::${kid} 连续失败 ${rt.consecutive_fails}`, detail:h(short(rt.last_error||rt.last_status,160))});
+    }
+  }
+  if((usage.by_status_family?.["429"]||0)>0) diagnostics.push({level:"warn", title:"近 1h 出现 429 限流", detail:`${fmt(usage.by_status_family["429"])} 次，请检查 key 池冷却和上游配额`});
+  if((usage.by_status_family?.["529"]||0)>0) diagnostics.push({level:"warn", title:"近 1h 出现 529 overloaded", detail:`${fmt(usage.by_status_family["529"])} 次，建议观察重试和 fallback`});
+  if((usage.by_status_family?.["5xx"]||0)>0) diagnostics.push({level:"err", title:"近 1h 出现上游 5xx", detail:`${fmt(usage.by_status_family["5xx"])} 次`});
+  if(!diagnostics.length) diagnostics.push({level:"ok", title:"暂无明显故障", detail:"没有冷却、禁用、连续失败或显著错误。"});
+
+  let html = `<div class="cards">
+    <div class="card"><div class="label">近 1h 错误</div><div class="value">${fmt(usage.errors)}</div><div class="sub">成功率 ${pct(usage.success_rate)}%</div></div>
+    <div class="card"><div class="label">冷却 Key</div><div class="value">${fmt(Object.values(stats.pools||{}).reduce((s,p)=>s+(p.cooling_keys||0),0))}</div></div>
+    <div class="card"><div class="label">禁用 Key</div><div class="value">${fmt(Object.values(stats.pools||{}).reduce((s,p)=>s+(p.disabled_keys||0),0))}</div></div>
+    <div class="card"><div class="label">重试</div><div class="value">${fmt(usage.retries)}</div></div>
+  </div>`;
+  html += `<h2>错误 / 冷却诊断</h2>`;
+  for(const d of diagnostics) html += `<div class="diag ${d.level}"><strong>${h(d.title)}</strong><div class="muted">${d.detail}</div></div>`;
+  html += `<div class="grid2">
+    <div class="section"><h2>状态族（近 1h）</h2><table><tr><th>类型</th><th>次数</th></tr>${Object.entries(usage.by_status_family||{}).map(([k,v])=>`<tr><td>${h(k)}</td><td>${fmt(v)}</td></tr>`).join("")}</table></div>
+    <div class="section"><h2>最易失败维度</h2><table><tr><th>VK</th><th>错误</th><th>请求</th></tr>${Object.entries(usage.by_vk||{}).sort((a,b)=>(b[1].errors||0)-(a[1].errors||0)).slice(0,10).map(([k,d])=>`<tr><td class="logline">${h(short(k,32))}</td><td>${d.errors?`<span class="chip err">${fmt(d.errors)}</span>`:"0"}</td><td>${fmt(d.requests)}</td></tr>`).join("")||'<tr><td colspan="3" class="muted">暂无数据</td></tr>'}</table></div>
+  </div>`;
+  document.getElementById("content").innerHTML = html;
+}
+
+async function renderPools(){
+  const data = await api("/admin/pools");
+  let html = "";
+  for(const [pn,p] of Object.entries(data)){
+    html += `<h2>${h(pn)} <span class="chip">${h(p.type)}</span> <span class="chip">${h(p.auth_scheme)}</span>
+             <span class="muted" style="font-weight:400;font-size:12px">${h(p.upstream)}</span></h2>`;
+    html += `<table><tr><th>Key ID</th><th>权重</th><th>upstream 覆盖</th><th>支持模型</th><th>状态</th><th>请求/Token</th><th>失败/活跃</th><th>操作</th></tr>`;
+    for(const k of p.keys){
+      const rt = k.runtime || {};
+      const left = secLeft(rt.cooldown_until);
+      const st = rt.disabled ? '<span class="chip err">disabled</span>' : (left>0 ? `<span class="chip warn">cooldown ${left}s</span>` : '<span class="chip ok">enabled</span>');
+      const models = (k.support_models||[]).map(m=>`<span class="chip">${h(m)}</span>`).join("") || '<span class="muted">全部</span>';
+      const toggle = rt.disabled
+        ? `<button class="act" onclick="keyAction('${h(pn)}','${h(k.id)}','enable')">启用</button>`
+        : `<button class="act danger" onclick="keyAction('${h(pn)}','${h(k.id)}','disable')">禁用</button>`;
+      html += `<tr><td>${h(k.id)}</td><td>${k.weight}</td><td class="muted">${h(k.upstream||"—")}</td>
+        <td>${models}</td><td>${st}</td>
+        <td>${fmt(rt.request_count)} / ${token(rt.total_tokens)}</td>
+        <td>${fmt(rt.consecutive_fails)} / ${fmt(rt.active)}</td>
+        <td>${toggle}<button class="act" onclick="keyAction('${h(pn)}','${h(k.id)}','reset-cooldown')">重置冷却</button></td></tr>`;
+    }
+    html += `</table>`;
+  }
+  document.getElementById("content").innerHTML = html;
+}
+
+async function keyAction(pool, id, action){
+  try{ await api(`/admin/keys/${encodeURIComponent(pool)}/${encodeURIComponent(id)}/${action}`, {method:"POST"});
+    toast(`${pool}::${id} → ${action} ✓`); render(); }
+  catch(e){ toast(e.message, true); }
+}
+
+async function renderVks(){
+  const data = await api("/admin/vk");
+  let html = `<h2>新增 Virtual Key</h2>
+    <div class="row">
+      <input id="newvk" placeholder="vk-xxx" style="width:280px" />
+      <button class="act" onclick="genVk()">生成随机</button>
+      <input id="newvkpools" placeholder="可访问池(逗号分隔，空=所有)" style="width:280px" />
+      <button class="act primary" onclick="addVk()">添加</button>
+    </div>`;
+  html += `<h2>现有 Virtual Keys</h2><table><tr><th>Key</th><th>可访问池</th><th>操作</th></tr>`;
+  for(const v of data.virtual_keys||[]){
+    const pools = v.pools.length ? v.pools.map(p=>`<span class="chip">${h(p)}</span>`).join("") : '<span class="muted">所有池</span>';
+    html += `<tr><td class="logline">${h(v.key)}</td><td>${pools}</td>
+      <td><button class="act danger" onclick="delVk('${h(v.key)}')">删除</button></td></tr>`;
+  }
+  if(!(data.virtual_keys||[]).length) html += `<tr><td colspan="3" class="muted">无</td></tr>`;
+  html += `</table>`;
+  document.getElementById("content").innerHTML = html;
+}
+function genVk(){
+  const rnd = [...crypto.getRandomValues(new Uint8Array(8))].map(b=>b.toString(16).padStart(2,"0")).join("");
+  document.getElementById("newvk").value = "vk-"+rnd;
+}
+async function addVk(){
+  const key = document.getElementById("newvk").value.trim();
+  const pools = document.getElementById("newvkpools").value.split(",").map(s=>s.trim()).filter(Boolean);
+  if(!key){ toast("请输入 vk", true); return; }
+  try{ await api("/admin/vk", {method:"POST", body:JSON.stringify({key, pools})}); toast("已添加 "+key); render(); }
+  catch(e){ toast(e.message, true); }
+}
+async function delVk(key){
+  if(!confirm("删除 "+key+" ?")) return;
+  try{ await api("/admin/vk/"+encodeURIComponent(key), {method:"DELETE"}); toast("已删除 "+key); render(); }
+  catch(e){ toast(e.message, true); }
+}
+
+async function renderLogs(){
+  const data = await api("/admin/logs/recent?limit=200");
+  let html = `<h2>最近请求 <span class="muted" style="font-weight:400;font-size:12px">（5s 自动刷新，最多 200 条）</span></h2>
+    <table><tr><th>时间</th><th>vk</th><th>endpoint</th><th>池::key</th><th>model</th><th>状态</th><th>流</th><th>耗时</th><th>Token</th><th>重试</th></tr>`;
+  for(const e of data.logs||[]){
+    const t = new Date((e.ts||0)*1000).toLocaleTimeString();
+    const cls = e.status>=500?"err":(e.status>=400?"warn":"ok");
+    html += `<tr class="logline"><td>${t}</td><td>${h((e.vk||"").slice(0,24))}</td><td>${h(e.endpoint)}</td>
+      <td>${h(e.pool||"—")}${e.key_id?"::"+h(e.key_id):""}</td><td>${h(e.model||"—")}</td>
+      <td><span class="chip ${cls}">${e.status}</span></td><td>${e.stream?"✓":""}</td>
+      <td>${e.duration_ms}ms</td><td>${token(e.total_tokens)}</td><td>${e.retried?'<span class="chip warn">'+e.retried+'</span>':""}</td></tr>`;
+  }
+  if(!(data.logs||[]).length) html += `<tr><td colspan="10" class="muted">暂无请求日志</td></tr>`;
+  html += `</table>`;
+  document.getElementById("content").innerHTML = html;
+}
+
+async function renderConfig(){
+  const data = await api("/admin/config");
+  let html = `<div class="row"><button class="act primary" onclick="forceReload()">强制热加载</button>
+    <span class="muted">改了 yaml 想立即生效时点这里（也可等 2s 自动轮询）</span></div>`;
+  html += `<h2>config.yaml <span class="muted" style="font-weight:400;font-size:12px">（admin_token 已脱敏）</span></h2><pre>${h(data.config_yaml)}</pre>`;
+  html += `<h2>keys.yaml <span class="muted" style="font-weight:400;font-size:12px">（真实 key 已脱敏）</span></h2><pre>${h(data.keys_yaml)}</pre>`;
+  document.getElementById("content").innerHTML = html;
+}
+async function forceReload(){
+  try{ const r=await api("/admin/reload",{method:"POST"}); toast("热加载完成 · 池: "+(r.pools||[]).join(", ")); render(); }
+  catch(e){ toast(e.message, true); }
+}
+
+// 自动登录（已有 token）
+if(TOKEN){ api("/admin/pools").then(enterApp).catch(()=>logout()); }
+</script>
+</body>
+</html>
